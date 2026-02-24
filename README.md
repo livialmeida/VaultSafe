@@ -24,4 +24,4 @@ O projeto foi desenvolvido sob o princípio de **Security by Design**, aplicando
 ---
 **Lívia Almeida**
 - Estudante de Engenharia de Software (Estácio)
-- Bacharel em Direito*
+- Bacharel em Direito
