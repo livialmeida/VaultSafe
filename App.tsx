@@ -10,17 +10,30 @@ export default function App() {
   const [noteTitle, setNoteTitle] = useState('');
   const [noteContent, setNoteContent] = useState('');
   const [savedNotes, setSavedNotes] = useState<any[]>([]);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   
   // A temporary Master Key (In a real scenario, this would be derived from a PBKDF2 hash)
   const MASTER_KEY = "Livia_Secure_Key_2026";
 
+  // app initialization
   useEffect(() => {
     const setup = async () => {
       try {
         await dbService.initialize();
-        loadNotes();
+        const sucess = await AuthService.authenticate();
+
+        if (sucess) {
+          setIsAuthenticated(true);
+          loadNotes();
+        } else {
+          Alert.alert(
+            "Acesso Negado!",
+            "Autenticação necessária para abrir o cofre.",
+            [{ text: "Tente novamente", onPress: () => setup() }]
+          );
+        }
       } catch (err: any) {
-        Alert.alert("Erro", err.message);
+        Alert.alert("Erro", "Falha ao inicializar o ambiente seguro.");
       }
     };
     setup();
@@ -36,21 +49,25 @@ export default function App() {
   };
 
   const handleSaveNote = async () => {
-    if (!noteTitle || !noteContent) return;
+    if (!noteTitle || !noteContent) {
+      Alert.alert("Atenção", "Por favor, preencha todos os campos.")
+      return;
+    } 
 
     try {
       // 1. Encrypt before saving
       const encrypted = EncryptionService.encrypt(noteContent, MASTER_KEY);
       
-      // 2. Persist in Database
+      // 2. Persist/save in Database
       await dbService.saveNote(noteTitle, encrypted);
       
+      // feedback and cleanup
+      Alert.alert("Sucesso", "Anotação protegida e salva!");
       setNoteTitle('');
       setNoteContent('');
       loadNotes();
-      Alert.alert("Sucesso", "Anotação protegida e salva!");
     } catch (err: any) {
-      Alert.alert("Erro", err.message);
+      Alert.alert("Erro", "Não foi possível salvar a nota com segurança.");
     }
   };
 
@@ -111,26 +128,36 @@ export default function App() {
 
       <View style={styles.listContainer}>
         <Text style={styles.subHeader}>Notas Protegidas:</Text>
-        {savedNotes.map((note) => (
-          <View key={note.id} style={styles.card}>
-            <Text style={styles.cardTitle}>{note.title}</Text>
-            <Text style={styles.cardContent}>Criptografado: ********</Text>
-            <View style={styles.cardActions}>
-              <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#5D7B93' }]}
-              onPress={() => handleViewNote(note.content)}
-              >
-                <Text style={styles.actionButtonText}>Ver</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#E74C3C' }]}
-              onPress={() => handleDeleteNote(note.id)}
-              >
-                <Text style={styles.actionButtonText}>Excluir</Text>
-              </TouchableOpacity>
-            </View>
+        {/* condiitional rendering: if there are no notes, show a feedback message,
+        otherwise, map through the saved notes */}
+        {savedNotes.length === 0 ? (
+          <View style={{ marginTop: 20, alignItems: 'center' }}>
+            <Text style={{ color: '#95A5A6', fontStyle: 'italic' }}>
+              Seu cofre está vazio. Adicione uma nota acima.
+            </Text>
           </View>
-        ))}
+        ) : (
+          savedNotes.map((note) => (
+            <View key={note.id} style={styles.card}>
+              <Text style={styles.cardTitle}>{note.title}</Text>
+              <Text style={styles.cardContent}>Criptografado: ********</Text>
+              <View style={styles.cardActions}>
+                <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: '#5D7B93' }]}
+                onPress={() => handleViewNote(note.content)}
+                >
+                  <Text style={styles.actionButtonText}>Ver</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: '#E74C3C' }]}
+                onPress={() => handleDeleteNote(note.id)}
+                >
+                  <Text style={styles.actionButtonText}>Excluir</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))
+        )}
       </View>
     </ScrollView>
   );
