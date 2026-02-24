@@ -64,6 +64,20 @@ async initialize(): Promise<void> {
             throw new Error("Erro ao buscar suas notas.");
         }
     }
+
+    /**
+     * Deletes a specific note from the database by its ID
+     */
+    async deleteNote(id: number): Promise<void> {
+      if (!this.db) throw new Error("Database not initialized.");
+
+      try {
+        await this.db.runAsync('DELETE FROM secret_notes WHERE id = ?', [id]);
+      } catch (error) {
+        console.error("Delete error:", error);
+        throw new Error("Falha ao excluir a nota.")
+      }
+    }
 }
 
 export const dbService = new DatabaseService();
