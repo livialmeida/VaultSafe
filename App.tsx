@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, Button, TextInput, Alert, ScrollView, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View, TextInput, Alert, ScrollView, TouchableOpacity, Image, AppState, AppStateStatus } from 'react-native';
 import { dbService } from './src/services/DatabaseService';
 import { EncryptionService } from './src/services/EncryptionService';
 import { AuthService } from './src/services/AuthService';
-
+import LogoImg from './assets/logo.png'
 
 export default function App() {
   
@@ -37,6 +37,20 @@ export default function App() {
       }
     };
     setup();
+  }, []);
+
+  // background lock - re-locks the app when minimized (as security by design)
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      // if the app goes to background or is inactive, we lock it
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        setIsAuthenticated(false);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   const loadNotes = async () => {
@@ -79,7 +93,12 @@ export default function App() {
       try {
         // 4. Decrypt only after successful Biometry
         const decrypted = EncryptionService.decrypt(encryptedText, MASTER_KEY);
-        Alert.alert("Conteúdo Decriptografado", decrypted);
+        
+        Alert.alert(
+          "Conteúdo Protegido", 
+          decrypted,
+        [{ text: "Fechar", onPress: () => {} }]
+      );
       } catch (err: any) {
         Alert.alert("Erro", err.message);
       }
@@ -101,6 +120,39 @@ export default function App() {
       Alert.alert("Erro", err.message)
     }
   };
+
+  // fullscren gatekeeper - splash/auth screen
+  // this overlay stays active until isAuthenticated is true
+  if (!isAuthenticated) {
+    return (
+      <View style={styles.authContainer}>
+        <Image 
+        source={LogoImg}
+        style={styles.logoImg}
+        resizeMode='contain'
+        />
+
+        <Text style={styles.authSubtitle}>Seu cofre digital seguro</Text>
+
+        <TouchableOpacity
+        style={styles.authButton}
+        onPress={() => {
+          const retryAuth = async () => {
+            const success = await AuthService.authenticate();
+            if (success) {
+              setIsAuthenticated(true);
+              loadNotes();
+            }
+          };
+          retryAuth();
+        }}
+        >
+          <Text style={styles.authButtonText}>DESBLOQUEAR COFRE</Text>
+        </TouchableOpacity>
+        <Text style={styles.footerText}>Protegido por Biometria Nativa</Text>
+      </View>
+    )
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -164,6 +216,45 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  authContainer: {
+    flex: 1,
+    backgroundColor: '#5D7B93',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  logoImg: {
+    width: 450,
+    height: 350,
+    marginBottom: 20,
+  },
+  authSubtitle: {
+    fontSize: 16,
+    color: '#DCDFE1',
+    marginBottom: 50,
+  },
+  authButton: {
+    backgroundColor: '#FFF',
+    paddingVertical: 15,
+    paddingHorizontal: 40,
+    borderRadius: 30,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+  },
+  authButtonText: {
+    color: '#5D7B93',
+    fontWeight: 'bold',
+    letterSpacing: 1.2,
+  },
+  footerText: {
+    position: 'absolute',
+    bottom: 40,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 12,
+    textTransform: 'uppercase',
+  },
   container: { 
     padding: 25, 
     backgroundColor: '#F4F7F6', 
@@ -172,7 +263,8 @@ const styles = StyleSheet.create({
   header: { 
     fontSize: 24, 
     fontWeight: 'bold', 
-    textAlign: 'center', 
+    textAlign: 'center',
+    marginTop: 35, 
     marginBottom: 20, 
     color: '#5D7B93', 
   },
