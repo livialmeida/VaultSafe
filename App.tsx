@@ -1,48 +1,94 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, TextInput, Alert, ScrollView, TouchableOpacity, Image, AppState, AppStateStatus } from 'react-native';
+import { StyleSheet, Text, View, TextInput, Alert, ScrollView, TouchableOpacity, Image, AppState } from 'react-native';
 import { dbService } from './src/services/DatabaseService';
 import { EncryptionService } from './src/services/EncryptionService';
 import { AuthService } from './src/services/AuthService';
-import LogoImg from './assets/logo.png'
+import LogoImg from './assets/logo.png';
 
 export default function App() {
-  
   const [noteTitle, setNoteTitle] = useState('');
   const [noteContent, setNoteContent] = useState('');
   const [savedNotes, setSavedNotes] = useState<any[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   
+  // Security parameters for Brute Force Protection (Self-Destruct)
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const MAX_ATTEMPTS = 5;
+  
   // A temporary Master Key (In a real scenario, this would be derived from a PBKDF2 hash)
   const MASTER_KEY = "Livia_Secure_Key_2026";
 
-  // app initialization
+  /**
+   * Centralized Authentication Gatekeeper
+   * Manages biometric verification, brute force tracking, and triggers database purge
+   */
+  const performSecureAuth = async (): Promise<boolean> => {
+    try {
+      const success = await AuthService.authenticate();
+
+      if (success) {
+        setFailedAttempts(0); // Reset tracking on successful authentication
+        return true;
+      } else {
+        // Enforces atomic state update using functional state updates
+        setFailedAttempts((prevCount) => {
+          const newCount = prevCount + 1;
+
+          if (newCount >= MAX_ATTEMPTS) {
+            // Execution of the secure database purge and memory erasure
+            dbService.deleteAllNotes()
+              .then(() => {
+                setSavedNotes([]);
+                setNoteTitle('');
+                setNoteContent('');
+                setIsAuthenticated(false);
+                Alert.alert(
+                  "🚨 SEGURANÇA VIOLADA",
+                  "O limite de tentativas foi excedido. Por medida de segurança jurídica e técnica, todos os dados do cofre foram apagados permanentemente.",
+                  [{ text: "Entendido" }]
+                );
+              })
+              .catch((err) => {
+                Alert.alert("Erro Crítico", "Falha ao executar o protocolo de expurgo.");
+              });
+            return 0; // Resets the attack counter state
+          } else {
+            Alert.alert(
+              "Acesso Negado", 
+              `Tentativa ${newCount} de ${MAX_ATTEMPTS}. O cofre será limpo se atingir o limite.`
+            );
+          }
+          return newCount;
+        });
+        return false;
+      }
+    } catch (error) {
+      Alert.alert("Erro", "Falha na comunicação com o hardware de autenticação.");
+      return false;
+    }
+  };
+
+  // App initialization - Executes strictly once on mount
   useEffect(() => {
     const setup = async () => {
       try {
         await dbService.initialize();
-        const sucess = await AuthService.authenticate();
+        const success = await performSecureAuth();
 
-        if (sucess) {
+        if (success) {
           setIsAuthenticated(true);
           loadNotes();
-        } else {
-          Alert.alert(
-            "Acesso Negado!",
-            "Autenticação necessária para abrir o cofre.",
-            [{ text: "Tente novamente", onPress: () => setup() }]
-          );
         }
       } catch (err: any) {
         Alert.alert("Erro", "Falha ao inicializar o ambiente seguro.");
       }
     };
     setup();
-  }, []);
+  }, []); // Empty dependency array prevents initialization loops
 
-  // background lock - re-locks the app when minimized (as security by design)
+  // Background lock - re-locks the app when minimized (Security by Design)
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
-      // if the app goes to background or is inactive, we lock it
       if (nextAppState === 'background' || nextAppState === 'inactive') {
         setIsAuthenticated(false);
       }
@@ -64,18 +110,17 @@ export default function App() {
 
   const handleSaveNote = async () => {
     if (!noteTitle || !noteContent) {
-      Alert.alert("Atenção", "Por favor, preencha todos os campos.")
+      Alert.alert("Atenção", "Por favor, preencha todos os campos.");
       return;
     } 
 
     try {
-      // 1. Encrypt before saving
+      // 1. Encrypt text payload before hitting database layer
       const encrypted = EncryptionService.encrypt(noteContent, MASTER_KEY);
       
-      // 2. Persist/save in Database
+      // 2. Persist in Database
       await dbService.saveNote(noteTitle, encrypted);
       
-      // feedback and cleanup
       Alert.alert("Sucesso", "Anotação protegida e salva!");
       setNoteTitle('');
       setNoteContent('');
@@ -86,72 +131,56 @@ export default function App() {
   };
 
   const handleViewNote = async (encryptedText: string) => {
-    // 3. Authenticate User (Gatekeeper)
-    const isAuthenticated = await AuthService.authenticate();
+    // Requires authorization check before attempting decryption step
+    const success = await performSecureAuth();
 
-    if (isAuthenticated) {
+    if (success) {
       try {
-        // 4. Decrypt only after successful Biometry
         const decrypted = EncryptionService.decrypt(encryptedText, MASTER_KEY);
         
         Alert.alert(
           "Conteúdo Protegido", 
           decrypted,
-        [{ text: "Fechar", onPress: () => {} }]
-      );
+          [{ text: "Fechar", onPress: () => {} }]
+        );
       } catch (err: any) {
-        Alert.alert("Erro", err.message);
+        Alert.alert("Erro", "Falha catastrófica ao processar decriptografia do registro.");
       }
-    } else {
-      Alert.alert("Acesso Negado", "Biometria não reconhecida.");
     }
   };
 
   const handleDeleteNote = async (id: number) => {
     try {
-      // call the database service to remove the record
       await dbService.deleteNote(id);
-
-      // refresh the notes list from the database
       loadNotes();
-
-      Alert.alert("Sucesso", "Anotação removida com segurança!")
+      Alert.alert("Sucesso", "Anotação removida com segurança!");
     } catch (err: any) {
-      Alert.alert("Erro", err.message)
+      Alert.alert("Erro", err.message);
     }
   };
 
-  // fullscren gatekeeper - splash/auth screen
-  // this overlay stays active until isAuthenticated is true
+  // Fullscreen Gatekeeper Interface
   if (!isAuthenticated) {
     return (
       <View style={styles.authContainer}>
-        <Image 
-        source={LogoImg}
-        style={styles.logoImg}
-        resizeMode='contain'
-        />
-
+        <Image source={LogoImg} style={styles.logoImg} resizeMode='contain' />
         <Text style={styles.authSubtitle}>Seu cofre digital seguro</Text>
 
         <TouchableOpacity
-        style={styles.authButton}
-        onPress={() => {
-          const retryAuth = async () => {
-            const success = await AuthService.authenticate();
+          style={styles.authButton}
+          onPress={async () => {
+            const success = await performSecureAuth();
             if (success) {
               setIsAuthenticated(true);
               loadNotes();
             }
-          };
-          retryAuth();
-        }}
+          }}
         >
           <Text style={styles.authButtonText}>DESBLOQUEAR COFRE</Text>
         </TouchableOpacity>
         <Text style={styles.footerText}>Protegido por Biometria Nativa</Text>
       </View>
-    )
+    );
   }
 
   return (
@@ -169,7 +198,7 @@ export default function App() {
           placeholder="Conteúdo sensível" 
           value={noteContent} 
           onChangeText={setNoteContent} 
-          secureTextEntry // UX: Hide characters while typing
+          secureTextEntry
           style={styles.input}
           placeholderTextColor="#95A5A6"
         />
@@ -180,8 +209,6 @@ export default function App() {
 
       <View style={styles.listContainer}>
         <Text style={styles.subHeader}>Notas Protegidas:</Text>
-        {/* condiitional rendering: if there are no notes, show a feedback message,
-        otherwise, map through the saved notes */}
         {savedNotes.length === 0 ? (
           <View style={{ marginTop: 20, alignItems: 'center' }}>
             <Text style={{ color: '#95A5A6', fontStyle: 'italic' }}>
@@ -191,18 +218,21 @@ export default function App() {
         ) : (
           savedNotes.map((note) => (
             <View key={note.id} style={styles.card}>
-              <Text style={styles.cardTitle}>{note.title}</Text>
-              <Text style={styles.cardContent}>Criptografado: ********</Text>
+              {/* Wraps titles inside flexible box layout to guarantee element spacing alignment */}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>{note.title}</Text>
+                <Text style={styles.cardContent}>Criptografado: ********</Text>
+              </View>
               <View style={styles.cardActions}>
                 <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: '#5D7B93' }]}
-                onPress={() => handleViewNote(note.content)}
+                  style={[styles.actionButton, { backgroundColor: '#5D7B93' }]}
+                  onPress={() => handleViewNote(note.content)}
                 >
                   <Text style={styles.actionButtonText}>Ver</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: '#E74C3C' }]}
-                onPress={() => handleDeleteNote(note.id)}
+                  style={[styles.actionButton, { backgroundColor: '#E74C3C' }]}
+                  onPress={() => handleDeleteNote(note.id)}
                 >
                   <Text style={styles.actionButtonText}>Excluir</Text>
                 </TouchableOpacity>

@@ -78,6 +78,24 @@ async initialize(): Promise<void> {
         throw new Error("Falha ao excluir a nota.")
       }
     }
+    
+    /**
+     * Danger: Self-destruct mechanism
+     * Delete all notes from the database in casse of a critical security breach
+     * This handles mitigation of civil and criminal liability regarding data leaks
+     */
+    async deleteAllNotes(): Promise<void> {
+      if (!this.db) throw new Error("Database not initialized.");
+      
+      try {
+        // Securely wipes out all stored entries without dropping the schema  
+        await this.db.runAsync('DELETE FROM secret_notes;');
+        console.log("Self destruct: All records securely purged from secret_notes table.")
+      } catch (error) {
+        console.error("Self-destruct mechanism execution error:", error);
+        throw new Error("Falha crítica ao executar o expurgo de segurança dos dados.")
+      }
+    }
 }
 
 export const dbService = new DatabaseService();
